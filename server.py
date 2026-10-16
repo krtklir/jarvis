@@ -7,6 +7,7 @@ Jarvis speaks through voice.py (Piper), which lives in the .venv, so run
 the server with the venv's Python:
 
 Jarvis listens through ears.py (Vosk); say "Jarvis, status report".
+What he understands and says back lives in brain.py.
 
 Run:
     .venv/bin/python server.py           # then open http://127.0.0.1:8765
@@ -19,12 +20,10 @@ import argparse
 import json
 import os
 import socket
-import subprocess
 import sys
 import threading
 import time
 from collections import deque
-from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +31,7 @@ SYSMON_DIR = os.environ.get("SYSMON_DIR", os.path.expanduser("~/sysmon"))
 sys.path.insert(0, SYSMON_DIR)
 
 import monitor  # noqa: E402  (needs the sys.path line above)
+import brain  # noqa: E402  (imports monitor too)
 
 SAMPLE_EVERY_S = 2
 # How many samples the CPU/RAM graph remembers (90 x 2s = 3 minutes).
@@ -40,22 +40,6 @@ HISTORY_LEN = 90
 ALERT_COOLDOWN_S = 10 * 60
 # How long the HUD shows what Jarvis heard.
 HEARD_SHOW_S = 5
-LAUNCHER = os.path.expanduser("~/Applications/artcraft-launcher.AppImage")
-
-# What Jarvis understands after his name -> which command it runs.
-# Vosk's small model only knows dictionary words (no "artcraft").
-PHRASES = {
-    "status report": "report",
-    "report": "report",
-    "what time is it": "time",
-    "time": "time",
-    "temperature": "temp",
-    "how hot is it": "temp",
-    "memory": "memory",
-    "open the launcher": "launcher",
-    "hello": "hello",
-    "thank you": "thanks",
-}
 
 
 class Stats:
@@ -107,80 +91,22 @@ class Stats:
             return
         alerts = []
         if m["temp_c"] is not None and m["temp_c"] >= monitor.TEMP_WARN_C:
-            alerts.append(("temp", f"Warning. CPU temperature is {round(m['temp_c'])} degrees."))
+            alerts.append(("temp", m["temp_c"]))
         if m["mem_percent"] >= monitor.MEM_WARN_PERCENT:
-            alerts.append(("mem", f"Warning. Memory is {round(m['mem_percent'])} percent full."))
+            alerts.append(("mem", m["mem_percent"]))
         if m["disk_percent"] >= monitor.DISK_WARN_PERCENT:
-            alerts.append(("disk", f"Warning. The disk is {round(m['disk_percent'])} percent full."))
+            alerts.append(("disk", m["disk_percent"]))
         now = time.monotonic()
-        for key, line in alerts:
-            if now - self.alerted.get(key, -ALERT_COOLDOWN_S) >= ALERT_COOLDOWN_S:
-                self.alerted[key] = now
-                self.voice.say(line)
+        for kind, value in alerts:
+            if now - self.alerted.get(kind, -ALERT_COOLDOWN_S) >= ALERT_COOLDOWN_S:
+                self.alerted[kind] = now
+                self.voice.say(brain.alert(kind, value))
 
-
-def greeting():
-    hour = datetime.now().hour
-    part = "morning" if hour < 12 else "afternoon" if hour < 18 else "evening"
-    return f"Good {part}. Jarvis online. All systems are being monitored."
-
-
-def time_line():
-    return f"It is {datetime.now().strftime('%-I:%M %p')}."
-
-
-def status_report(m):
-    """One spoken paragraph summarizing the latest sample."""
-    lines = [time_line()]
-    lines.append(f"CPU load is {round(m['cpu_percent'])} percent")
-    if m["temp_c"] is not None:
-        lines[-1] += f", at {round(m['temp_c'])} degrees."
-    else:
-        lines[-1] += "."
-    lines.append(f"Memory is {round(m['mem_percent'])} percent used, "
-                 f"with {m['mem_available_mb']} megabytes free.")
-    if m["top_processes"]:
-        top = m["top_processes"][0]
-        lines.append(f"The heaviest process is {top['name']}, using {top['mem_mb']} megabytes.")
-    trouble = (
-        (m["temp_c"] or 0) >= monitor.TEMP_WARN_C
-        or m["mem_percent"] >= monitor.MEM_WARN_PERCENT
-        or m["disk_percent"] >= monitor.DISK_WARN_PERCENT
-    )
-    lines.append("Some systems need attention." if trouble else "All systems nominal.")
-    return " ".join(lines)
-
-
-def run_command(name, stats):
-    """Turn a command name from the ears into something Jarvis says or does."""
-    m = stats.latest
-    if name == "wake":
-        reply = "Yes?"
-    elif name == "report":
-        reply = status_report(m) if m else "Still gathering data."
-    elif name == "time":
-        reply = time_line()
-    elif name == "temp":
-        reply = (f"The CPU is at {round(m['temp_c'])} degrees."
-                 if m and m["temp_c"] is not None else "I can't read the temperature.")
-    elif name == "memory":
-        reply = (f"Memory is {round(m['mem_percent'])} percent used, "
-                 f"with {m['mem_available_mb']} megabytes free." if m else "Still gathering data.")
-    elif name == "launcher":
-        if os.path.exists(LAUNCHER):
-            # start_new_session: the launcher keeps running if Jarvis stops.
-            subprocess.Popen([LAUNCHER], start_new_session=True,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            reply = "Opening the launcher."
-        else:
-            reply = "I can't find the launcher."
-    elif name == "hello":
-        reply = "Hello. At your service."
-    elif name == "thanks":
-        reply = "You're welcome."
-    else:
-        return
-    stats.voice.say(reply)
+    def on_command(self, name):
+        """Called by the ears when they recognize a command."""
+        line = brain.reply(name, self.latest)
+        if line:
+            self.voice.say(line)
 
 
 def read_uptime():
@@ -205,7 +131,7 @@ class Handler(SimpleHTTPRequestHandler):
             if not voice or not stats.latest:
                 self.send_json({"ok": False}, status=503)
                 return
-            voice.say(status_report(stats.latest))
+            voice.say(brain.status_report(stats.latest))
             self.send_json({"ok": True})
         else:
             self.send_error(404)
@@ -248,12 +174,12 @@ def main():
         try:
             from ears import Ears
             print("Loading ears…")
-            server.stats.ears = Ears(PHRASES, lambda name: run_command(name, server.stats), voice)
+            server.stats.ears = Ears(brain.PHRASES, server.stats.on_command, voice)
         except Exception as e:  # vosk not installed, or the model folder is missing
             print(f"Ears unavailable ({e}); not listening.")
 
     if voice:
-        voice.say(greeting())
+        voice.say(brain.greeting())
     print(f"Jarvis HUD online at http://127.0.0.1:{args.port}  (Ctrl+C to stop)")
     try:
         server.serve_forever()

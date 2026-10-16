@@ -7,6 +7,11 @@ free dictation, and anything else is heard as "[unk]" and ignored.
 
 Commands must start with the wake word: "jarvis, status report".
 Saying just "jarvis" opens a short window where the command alone works.
+
+Normally Vosk waits for a pause before giving its final answer. To reply
+faster, Jarvis also watches the partial (still-listening) result: once it
+is a complete "jarvis <command>" that isn't the start of a longer phrase,
+he acts on it right away.
 """
 
 import json
@@ -37,6 +42,9 @@ class Ears:
         grammar = [WAKE_WORD] + list(phrases) + [f"{WAKE_WORD} {p}" for p in phrases] + ["[unk]"]
         self.recognizer = KaldiRecognizer(Model(model_path), RATE, json.dumps(grammar))
         self.recognizer.SetWords(True)  # per-word confidence scores
+        # Full commands that can't be the start of a longer phrase: safe to act on early.
+        full = [f"{WAKE_WORD} {p}" for p in phrases]
+        self.instant = {f for f in full if not any(g.startswith(f + " ") for g in full)}
         self.awake_until = 0
         self.heard = None  # (text, time.time()) of the last thing understood, for the HUD
         threading.Thread(target=self._loop, daemon=True).start()
@@ -61,6 +69,11 @@ class Ears:
                 continue
             if self.recognizer.AcceptWaveform(chunk):
                 self._handle(json.loads(self.recognizer.Result()))
+            else:
+                partial = json.loads(self.recognizer.PartialResult()).get("partial", "")
+                if partial in self.instant:
+                    self.recognizer.Reset()  # drop the rest of this utterance
+                    self._run(partial)
 
     def _handle(self, result):
         words = result.get("result", [])
@@ -77,9 +90,12 @@ class Ears:
             self.on_command("wake")
             return
 
+        if text.startswith(f"{WAKE_WORD} ") or self.awake:
+            self._run(text)
+        # else: a command without the wake word, outside the follow-up window
+
+    def _run(self, text):
         command = text.removeprefix(f"{WAKE_WORD} ")
-        if command == text and not self.awake:
-            return  # a command without the wake word, outside the follow-up window
         if command in self.phrases:
             self.heard = (text, time.time())
             self.awake_until = 0
