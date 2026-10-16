@@ -11,6 +11,7 @@ import queue
 import subprocess
 import tempfile
 import threading
+import time
 import wave
 
 from piper import PiperVoice
@@ -24,15 +25,18 @@ class Voice:
         self.piper = PiperVoice.load(model_path)
         self.lines = queue.Queue()
         self.speaking = None  # text being spoken right now, for the HUD
+        self.busy = False     # True from picking up a line until it finishes playing
         threading.Thread(target=self._worker, daemon=True).start()
 
     def say(self, text):
         """Queue a line to be spoken. Returns immediately."""
+        self.busy = True  # set now, so the ears stop before the worker even starts
         self.lines.put(text)
 
     def _worker(self):
         while True:
             text = self.lines.get()
+            self.busy = True
             try:
                 with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
                     with wave.open(tmp.name, "wb") as wav:
@@ -43,3 +47,6 @@ class Voice:
                 print(f"voice error: {e}")
             finally:
                 self.speaking = None
+                # Let the room's echo die down before the ears listen again.
+                time.sleep(0.3)
+                self.busy = not self.lines.empty()

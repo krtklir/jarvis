@@ -114,6 +114,9 @@
     min-height: 1.4em; max-width: 520px; text-align: center;
     color: var(--text); font-size: 18px; letter-spacing: 0.04em; opacity: 0.9;
   }
+  #subtitle.heard { color: var(--muted); font-family: "Orbitron", monospace; font-size: 14px; letter-spacing: 0.15em; }
+  #ears { color: var(--muted); letter-spacing: 0.2em; }
+  #ears.awake { color: var(--cyan); text-shadow: 0 0 8px var(--cyan); }
   button.cmd {
     font-family: "Orbitron", monospace; font-size: 12px; letter-spacing: 0.25em;
     color: var(--cyan); background: rgba(62, 232, 255, 0.06);
@@ -238,14 +241,14 @@
 
   <footer>
     <div id="status" class="orb glow">INITIALISING…</div>
-    <div id="link">LINK: —</div>
+    <div><span id="ears">EARS: —</span> &nbsp;·&nbsp; <span id="link">LINK: —</span></div>
   </footer>
 </div>
 
 <script>
 // Same thresholds as sysmon's monitor.py, so the HUD and the pop-ups agree.
 const WARN = { temp: 75, mem: 90, disk: 90 };
-const POLL_MS = 2000;
+const POLL_MS = 1000;
 
 const $ = id => document.getElementById(id);
 const CPU_CIRC = 2 * Math.PI * 76;
@@ -328,7 +331,14 @@ function render(m) {
 
   // Voice: glow the core and show subtitles while Jarvis is talking.
   $("reactor").classList.toggle("talking", !!m.speaking);
-  $("subtitle").textContent = m.speaking ? `“${m.speaking}”` : "";
+  const sub = $("subtitle");
+  if (m.speaking) { sub.textContent = `“${m.speaking}”`; sub.className = ""; }
+  else if (m.heard) { sub.textContent = `▸ ${m.heard.toUpperCase()}`; sub.className = "heard"; }
+  else { sub.textContent = ""; }
+
+  // Ears: show whether Jarvis is listening, and light up after "Jarvis".
+  $("ears").textContent = !m.ears ? "EARS: OFF" : m.awake ? "EARS: LISTENING…" : "EARS: SAY “JARVIS”";
+  $("ears").className = m.awake ? "awake" : "";
   $("report").disabled = !m.voice;
   $("report").title = m.voice ? "" : "Voice is off: start server.py with .venv/bin/python";
 
