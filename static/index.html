@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J.A.R.V.I.S.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Rajdhani:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #02080d;
+    --cyan: #3ee8ff;
+    --cyan-dim: rgba(62, 232, 255, 0.25);
+    --cyan-faint: rgba(62, 232, 255, 0.08);
+    --amber: #ffb84d;
+    --red: #ff4d5e;
+    --text: #bff6ff;
+    --muted: #5d9aa8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background:
+      radial-gradient(ellipse at center, #062030 0%, var(--bg) 70%),
+      var(--bg);
+    color: var(--text);
+    font-family: "Rajdhani", "DejaVu Sans", sans-serif;
+    font-size: 17px;
+    overflow: hidden;
+  }
+  /* faint grid in the background */
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(var(--cyan-faint) 1px, transparent 1px),
+      linear-gradient(90deg, var(--cyan-faint) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+  }
+  .glow { text-shadow: 0 0 8px var(--cyan), 0 0 18px var(--cyan-dim); }
+  .orb  { font-family: "Orbitron", "DejaVu Sans Mono", monospace; letter-spacing: 0.12em; }
+
+  .hud {
+    position: relative; height: 100%;
+    display: grid;
+    grid-template-columns: 1fr minmax(360px, 1.3fr) 1fr;
+    grid-template-rows: auto 1fr auto;
+    gap: 16px; padding: 20px 28px;
+  }
+
+  header { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; }
+  header h1 { font-size: 26px; color: var(--cyan); }
+  header .sub { color: var(--muted); font-size: 14px; letter-spacing: 0.3em; }
+  #clock { font-size: 34px; color: var(--cyan); text-align: right; }
+  #date  { color: var(--muted); font-size: 14px; letter-spacing: 0.25em; text-align: right; }
+
+  .panel {
+    border: 1px solid var(--cyan-dim);
+    background: rgba(4, 30, 42, 0.45);
+    padding: 14px 18px; position: relative;
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+  }
+  .panel h2 {
+    font-family: "Orbitron", monospace; font-size: 12px; letter-spacing: 0.3em;
+    color: var(--cyan); margin-bottom: 10px; opacity: 0.85;
+  }
+  .side { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+
+  .row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dashed var(--cyan-faint); }
+  .row span:first-child { color: var(--muted); letter-spacing: 0.08em; }
+  .row span:last-child { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  .bar { height: 4px; background: var(--cyan-faint); margin: 4px 0 8px; }
+  .bar > div { height: 100%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); transition: width 0.8s ease; }
+
+  /* --- centre reactor --- */
+  .core { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; min-height: 0; }
+  .reactor { position: relative; width: min(100%, 46vh); aspect-ratio: 1; }
+  .reactor svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .spin    { animation: spin 24s linear infinite; transform-origin: 50% 50%; will-change: transform; }
+  .spin-r  { animation: spin 36s linear infinite reverse; transform-origin: 50% 50%; will-change: transform; }
+  .spin-f  { animation: spin 9s linear infinite; transform-origin: 50% 50%; will-change: transform; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .reactor .readout {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; pointer-events: none;
+  }
+  #cpu-big { font-size: clamp(36px, 7vh, 64px); color: var(--cyan); }
+  .readout small { color: var(--muted); letter-spacing: 0.35em; font-size: 13px; }
+
+  .gauges { display: flex; gap: 28px; }
+  .gauge { width: 96px; text-align: center; }
+  .gauge svg { width: 96px; height: 96px; }
+  .gauge .val { font-family: "Orbitron", monospace; font-size: 15px; margin-top: -62px; height: 40px; }
+  .gauge .lbl { color: var(--muted); font-size: 12px; letter-spacing: 0.3em; margin-top: 8px; }
+  .arc { transition: stroke-dashoffset 0.8s ease, stroke 0.4s; }
+
+  canvas { width: 100%; height: 120px; display: block; }
+  .legend { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 3px; margin-right: 6px; vertical-align: middle; }
+
+  footer { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+  #status { letter-spacing: 0.25em; }
+  #status.warn { color: var(--amber); text-shadow: 0 0 8px var(--amber); }
+  #status.bad  { color: var(--red);   text-shadow: 0 0 8px var(--red); animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.35; } }
+  #link { color: var(--muted); letter-spacing: 0.2em; }
+  #link.down { color: var(--red); }
+
+  /* --- voice --- */
+  .reactor.talking svg { filter: drop-shadow(0 0 14px var(--cyan)); }
+  .reactor.talking .spin-f { animation-duration: 2.5s; }
+  #subtitle {
+    min-height: 1.4em; max-width: 520px; text-align: center;
+    color: var(--text); font-size: 18px; letter-spacing: 0.04em; opacity: 0.9;
+  }
+  button.cmd {
+    font-family: "Orbitron", monospace; font-size: 12px; letter-spacing: 0.25em;
+    color: var(--cyan); background: rgba(62, 232, 255, 0.06);
+    border: 1px solid var(--cyan-dim); padding: 10px 22px; cursor: pointer;
+    clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  button.cmd:hover:not(:disabled) { background: rgba(62, 232, 255, 0.18); box-shadow: 0 0 14px var(--cyan-dim); }
+  button.cmd:disabled { opacity: 0.35; cursor: default; }
+
+  .warn-c { color: var(--amber) !important; }
+  .bad-c  { color: var(--red) !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spin, .spin-r, .spin-f, #status.bad { animation: none; }
+  }
+  @media (max-width: 900px) {
+    body { overflow: auto; }
+    .hud { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; padding: 16px; }
+    .reactor { width: min(100%, 360px); }
+  }
+</style>
+</head>
+<body>
+<div class="hud">
+  <header>
+    <div>
+      <h1 class="orb glow">J.A.R.V.I.S.</h1>
+      <div class="sub">JUST A RATHER VERY INTELLIGENT SYSTEM</div>
+    </div>
+    <div>
+      <div id="clock" class="orb glow">--:--:--</div>
+      <div id="date">---</div>
+    </div>
+  </header>
+
+  <section class="side">
+    <div class="panel">
+      <h2>SYSTEM</h2>
+      <div class="row"><span>HOST</span><span id="host">—</span></div>
+      <div class="row"><span>UPTIME</span><span id="uptime">—</span></div>
+      <div class="row"><span>CORES</span><span id="cores">—</span></div>
+      <div class="row"><span>LOAD 1M</span><span id="load">—</span></div>
+      <div class="row"><span>POWER</span><span id="power">—</span></div>
+    </div>
+    <div class="panel">
+      <h2>MEMORY</h2>
+      <div class="row"><span>RAM USED</span><span id="ram-mb">—</span></div>
+      <div class="bar"><div id="ram-bar" style="width:0"></div></div>
+      <div class="row"><span>AVAILABLE</span><span id="ram-free">—</span></div>
+      <div class="row"><span>SWAP</span><span id="swap">—</span></div>
+    </div>
+    <div class="panel">
+      <h2>TOP PROCESSES</h2>
+      <div id="procs"></div>
+    </div>
+  </section>
+
+  <section class="core">
+    <div class="reactor" id="reactor">
+      <svg viewBox="0 0 200 200" aria-hidden="true">
+        <defs>
+          <filter id="g"><feGaussianBlur stdDeviation="1.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+        <!-- outer tick ring -->
+        <g class="spin-r" opacity="0.6">
+          <circle cx="100" cy="100" r="96" fill="none" stroke="#3ee8ff" stroke-width="0.6"
+                  stroke-dasharray="1 4.03"/>
+        </g>
+        <!-- broken arc ring -->
+        <g class="spin" filter="url(#g)">
+          <circle cx="100" cy="100" r="88" fill="none" stroke="#3ee8ff" stroke-width="2"
+                  stroke-dasharray="60 18 8 18" opacity="0.8"/>
+        </g>
+        <!-- CPU arc -->
+        <circle cx="100" cy="100" r="76" fill="none" stroke="rgba(62,232,255,0.12)" stroke-width="8"/>
+        <circle id="cpu-arc" class="arc" cx="100" cy="100" r="76" fill="none" stroke="#3ee8ff"
+                stroke-width="8" stroke-linecap="round" filter="url(#g)"
+                transform="rotate(-90 100 100)" stroke-dasharray="477.5" stroke-dashoffset="477.5"/>
+        <!-- fast inner ring -->
+        <g class="spin-f">
+          <circle cx="100" cy="100" r="62" fill="none" stroke="#3ee8ff" stroke-width="1"
+                  stroke-dasharray="30 10 4 10" opacity="0.55"/>
+        </g>
+        <circle cx="100" cy="100" r="54" fill="rgba(62,232,255,0.05)" stroke="rgba(62,232,255,0.35)" stroke-width="0.8"/>
+      </svg>
+      <div class="readout">
+        <div id="cpu-big" class="orb glow">--%</div>
+        <small>CPU LOAD</small>
+      </div>
+    </div>
+
+    <div class="gauges">
+      <div class="gauge" id="g-ram"><svg viewBox="0 0 100 100"></svg><div class="val orb">--</div><div class="lbl">RAM</div></div>
+      <div class="gauge" id="g-temp"><svg viewBox="0 0 100 100"></svg><div class="val orb">--</div><div class="lbl">TEMP</div></div>
+      <div class="gauge" id="g-disk"><svg viewBox="0 0 100 100"></svg><div class="val orb">--</div><div class="lbl">DISK</div></div>
+    </div>
+
+    <div id="subtitle"></div>
+    <button class="cmd" id="report" disabled>STATUS REPORT</button>
+  </section>
+
+  <section class="side">
+    <div class="panel">
+      <h2>NETWORK</h2>
+      <div class="row"><span>▼ DOWN</span><span id="net-rx">—</span></div>
+      <div class="row"><span>▲ UP</span><span id="net-tx">—</span></div>
+      <div class="row"><span>INTERFACES</span><span id="ifaces">—</span></div>
+    </div>
+    <div class="panel">
+      <h2>ACTIVITY · LAST 3 MIN</h2>
+      <canvas id="graph"></canvas>
+      <div class="legend"><span><i style="background:#3ee8ff"></i>CPU</span><span><i style="background:#ffb84d"></i>RAM</span></div>
+    </div>
+    <div class="panel">
+      <h2>THERMALS</h2>
+      <div class="row"><span>CPU PACKAGE</span><span id="temp">—</span></div>
+      <div class="bar"><div id="temp-bar" style="width:0"></div></div>
+      <div class="row"><span>WARN AT</span><span>75 °C</span></div>
+    </div>
+  </section>
+
+  <footer>
+    <div id="status" class="orb glow">INITIALISING…</div>
+    <div id="link">LINK: —</div>
+  </footer>
+</div>
+
+<script>
+// Same thresholds as sysmon's monitor.py, so the HUD and the pop-ups agree.
+const WARN = { temp: 75, mem: 90, disk: 90 };
+const POLL_MS = 2000;
+
+const $ = id => document.getElementById(id);
+const CPU_CIRC = 2 * Math.PI * 76;
+
+// --- small gauges -----------------------------------------------------------
+const GAUGE_R = 40, GAUGE_CIRC = 2 * Math.PI * GAUGE_R;
+for (const id of ["g-ram", "g-temp", "g-disk"]) {
+  $(id).querySelector("svg").innerHTML = `
+    <circle cx="50" cy="50" r="${GAUGE_R}" fill="none" stroke="rgba(62,232,255,0.12)" stroke-width="6"/>
+    <circle class="arc" cx="50" cy="50" r="${GAUGE_R}" fill="none" stroke="#3ee8ff" stroke-width="6"
+            stroke-linecap="round" transform="rotate(-90 50 50)"
+            stroke-dasharray="${GAUGE_CIRC}" stroke-dashoffset="${GAUGE_CIRC}"/>`;
+}
+
+function level(value, warnAt) {
+  if (value == null) return "";
+  if (value >= warnAt) return "bad";
+  if (value >= warnAt * 0.85) return "warn";
+  return "";
+}
+const COLORS = { "": "#3ee8ff", warn: "#ffb84d", bad: "#ff4d5e" };
+
+function setGauge(id, percent, text, lvl) {
+  const g = $(id);
+  const arc = g.querySelector(".arc");
+  const p = Math.max(0, Math.min(100, percent ?? 0));
+  arc.style.strokeDashoffset = GAUGE_CIRC * (1 - p / 100);
+  arc.style.stroke = COLORS[lvl];
+  const val = g.querySelector(".val");
+  val.textContent = text;
+  val.style.color = COLORS[lvl];
+}
+
+// --- formatting -------------------------------------------------------------
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h ${m}m` : `${h}h ${m}m`;
+}
+function fmtRate(kbps) {
+  return kbps >= 1024 ? `${(kbps / 1024).toFixed(1)} MB/s` : `${kbps.toFixed(1)} KB/s`;
+}
+
+// --- clock --------------------------------------------------------------------
+function tick() {
+  const now = new Date();
+  $("clock").textContent = now.toLocaleTimeString([], { hour12: false });
+  $("date").textContent = now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", year: "numeric" }).toUpperCase();
+}
+setInterval(tick, 1000); tick();
+
+// --- graph --------------------------------------------------------------------
+function drawGraph(history) {
+  const c = $("graph"), dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  ctx.strokeStyle = "rgba(62,232,255,0.08)"; ctx.lineWidth = 1;
+  for (const y of [0.25, 0.5, 0.75]) { ctx.beginPath(); ctx.moveTo(0, h * y); ctx.lineTo(w, h * y); ctx.stroke(); }
+
+  const max = 90; // history length the server keeps
+  const x = i => w - (history.length - 1 - i) * (w / (max - 1));
+  const y = v => h - (v / 100) * (h - 4) - 2;
+  for (const [key, color] of [["mem", "#ffb84d"], ["cpu", "#3ee8ff"]]) {
+    if (history.length < 2) break;
+    ctx.beginPath();
+    history.forEach((s, i) => i ? ctx.lineTo(x(i), y(s[key])) : ctx.moveTo(x(i), y(s[key])));
+    ctx.strokeStyle = color; ctx.lineWidth = 1.6;
+    ctx.shadowColor = color; ctx.shadowBlur = 6;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+}
+
+// --- render -------------------------------------------------------------------
+function render(m) {
+  if (m.cpu_percent === undefined) return; // server's first sample isn't ready yet
+
+  // Voice: glow the core and show subtitles while Jarvis is talking.
+  $("reactor").classList.toggle("talking", !!m.speaking);
+  $("subtitle").textContent = m.speaking ? `“${m.speaking}”` : "";
+  $("report").disabled = !m.voice;
+  $("report").title = m.voice ? "" : "Voice is off: start server.py with .venv/bin/python";
+
+  $("cpu-big").textContent = `${Math.round(m.cpu_percent)}%`;
+  $("cpu-arc").style.strokeDashoffset = CPU_CIRC * (1 - m.cpu_percent / 100);
+
+  const memLvl = level(m.mem_percent, WARN.mem);
+  const tempLvl = level(m.temp_c, WARN.temp);
+  const diskLvl = level(m.disk_percent, WARN.disk);
+  setGauge("g-ram", m.mem_percent, `${Math.round(m.mem_percent)}%`, memLvl);
+  setGauge("g-temp", m.temp_c, m.temp_c == null ? "N/A" : `${Math.round(m.temp_c)}°`, tempLvl);
+  setGauge("g-disk", m.disk_percent, `${Math.round(m.disk_percent)}%`, diskLvl);
+
+  $("host").textContent = m.hostname;
+  $("uptime").textContent = fmtUptime(m.uptime_s);
+  $("cores").textContent = m.cpu_count;
+  $("load").textContent = m.load_1m.toFixed(2);
+  // Only show the battery when it's actually powering the laptop
+  // (a dead battery reports 0% "Not charging" forever).
+  $("power").textContent = m.battery_status === "Discharging"
+    ? `BATTERY ${m.battery_percent}%` : "AC MAINS";
+
+  $("ram-mb").textContent = `${m.mem_used_mb} / ${m.mem_total_mb} MB`;
+  $("ram-bar").style.width = `${m.mem_percent}%`;
+  $("ram-free").textContent = `${m.mem_available_mb} MB`;
+  $("swap").textContent = `${m.swap_used_mb} MB`;
+
+  $("procs").innerHTML = "";
+  for (const p of m.top_processes) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = "<span></span><span></span>";
+    row.children[0].textContent = p.name.toUpperCase();
+    row.children[1].textContent = `${p.mem_mb} MB`;
+    $("procs").appendChild(row);
+  }
+
+  $("net-rx").textContent = fmtRate(m.net_rx_kbps);
+  $("net-tx").textContent = fmtRate(m.net_tx_kbps);
+  $("ifaces").textContent = Object.keys(m.net_interfaces).join(", ") || "NONE";
+
+  $("temp").textContent = m.temp_c == null ? "N/A" : `${m.temp_c.toFixed(1)} °C`;
+  $("temp").className = tempLvl ? `${tempLvl}-c` : "";
+  $("temp-bar").style.width = `${Math.min(100, m.temp_c ?? 0)}%`;
+
+  drawGraph(m.history);
+
+  const alerts = [];
+  if (tempLvl === "bad") alerts.push("CPU RUNNING HOT");
+  if (memLvl === "bad") alerts.push("MEMORY CRITICAL");
+  if (diskLvl === "bad") alerts.push("DISK NEARLY FULL");
+  const st = $("status");
+  if (alerts.length) { st.textContent = `⚠ ${alerts.join(" · ")}`; st.className = "orb bad"; }
+  else if (memLvl || tempLvl || diskLvl) { st.textContent = "SYSTEMS UNDER LOAD"; st.className = "orb warn"; }
+  else { st.textContent = "ALL SYSTEMS NOMINAL"; st.className = "orb glow"; }
+}
+
+$("report").addEventListener("click", () => fetch("/api/report", { method: "POST" }));
+
+async function poll() {
+  try {
+    const r = await fetch("/api/stats", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    render(await r.json());
+    $("link").textContent = "LINK: ONLINE";
+    $("link").className = "";
+  } catch {
+    $("link").textContent = "LINK: LOST — IS server.py RUNNING?";
+    $("link").className = "down";
+  }
+  setTimeout(poll, POLL_MS);
+}
+poll();
+</script>
+</body>
+</html>
