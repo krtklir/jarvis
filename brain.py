@@ -35,6 +35,13 @@ PHRASES = {
     "uptime": "uptime",
     "how long have you been running": "uptime",
     "open the launcher": "launcher",
+    "weather": "weather",
+    "what is the weather": "weather",
+    "how is it outside": "weather",
+    "forecast": "tomorrow",
+    "weather tomorrow": "tomorrow",
+    "will it rain": "rain",
+    "is it going to rain": "rain",
     "how are you": "how_are_you",
     "who are you": "who",
     "introduce yourself": "who",
@@ -107,8 +114,50 @@ def trouble(m):
             or m["disk_percent"] >= DISK_WARN_PERCENT)
 
 
-def status_report(m):
-    """One spoken paragraph summarizing the latest sample."""
+def weather_now(w):
+    """'24 degrees and mostly clear' style summary of the current weather."""
+    return f"{round(w['temp'])} degrees and {w['condition']}"
+
+
+def weather_comment(w):
+    if w["feels_like"] >= 32:
+        return "Stay hydrated out there."
+    if w["feels_like"] <= 10:
+        return "Grab a jacket."
+    if w["wind_kmh"] >= 30:
+        return "It's windy, mind."
+    return ""
+
+
+def weather_reply(name, w):
+    if not w:
+        return "I can't reach the weather service right now."
+    today, tomorrow = w["today"], w["tomorrow"]
+    if name == "weather":
+        line = (f"It's {weather_now(w)} in {w['place']}, {ADDRESS}. "
+                f"Feels like {round(w['feels_like'])}. Today's high is {round(today['high'])}. "
+                f"{weather_comment(w)}")
+    elif name == "tomorrow":
+        line = (f"Tomorrow looks {tomorrow['condition']}, with a high of "
+                f"{round(tomorrow['high'])} and a low of {round(tomorrow['low'])}.")
+        if tomorrow["rain_chance"] >= 20:
+            line += f" {tomorrow['rain_chance']} percent chance of rain."
+    else:  # rain
+        t, n = today["rain_chance"], tomorrow["rain_chance"]
+        if t < 20 and n < 20:
+            line = pick("rain", [f"No rain in sight, {ADDRESS}.",
+                                 f"Dry as a bone, {ADDRESS}. Under 20 percent today and tomorrow."])
+        else:
+            line = f"{t} percent chance of rain today, and {n} percent tomorrow."
+            if max(t, n) >= 60:
+                line += " I'd take an umbrella."
+    if w["stale"]:  # couldn't refresh for a while; say so
+        line = "Last I checked, " + line[0].lower() + line[1:]
+    return line.strip()
+
+
+def status_report(m, w=None):
+    """One spoken paragraph summarizing the latest sample (and the weather, if known)."""
     lines = [pick("report_intro", [f"Here's the rundown, {ADDRESS}.", f"Right, {ADDRESS}.", "Status report."])]
     lines.append(f"It's {clock()}.")
     cpu = f"CPU load is {round(m['cpu_percent'])} percent"
@@ -119,6 +168,8 @@ def status_report(m):
         top = m["top_processes"][0]
         lines.append(f"The heaviest process is {top['name']}, using {top['mem_mb']} megabytes.")
     lines.append("Some systems need attention." if trouble(m) else "All systems nominal.")
+    if w and not w["stale"]:
+        lines.append(f"Outside, it's {weather_now(w)}.")
     return " ".join(lines)
 
 
@@ -131,8 +182,11 @@ def alert(kind, value):
     }[kind]
 
 
-def reply(name, m):
-    """What Jarvis says for a command. m is the latest stats sample (or None)."""
+def reply(name, m, w=None):
+    """What Jarvis says for a command.
+
+    m is the latest stats sample and w the latest weather (either may be None).
+    """
     if name == "wake":
         return pick(name, [f"Yes, {ADDRESS}?", f"Go ahead, {ADDRESS}.", "At your service.", "Listening."])
     if name == "hello":
@@ -164,15 +218,17 @@ def reply(name, m):
         subprocess.Popen([LAUNCHER], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return pick(name, ["Opening the launcher.", f"On it, {ADDRESS}.", "Launcher coming up."])
+    if name in ("weather", "tomorrow", "rain"):
+        return weather_reply(name, w)
 
     # Everything below needs a stats sample.
     if not m:
         return "Still gathering data. Give me a second."
     if name == "report":
-        return status_report(m)
+        return status_report(m, w)
     if name == "how_are_you":
         if trouble(m):
-            return f"Honestly, {ADDRESS}, a bit stressed. " + status_report(m)
+            return f"Honestly, {ADDRESS}, a bit stressed. " + status_report(m, w)
         return pick(name, [
             f"All systems nominal, {ADDRESS}. Thanks for asking.",
             f"Running smooth, {ADDRESS}. CPU at {round(m['cpu_percent'])} percent and feeling fine.",

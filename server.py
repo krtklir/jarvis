@@ -32,6 +32,7 @@ sys.path.insert(0, SYSMON_DIR)
 
 import monitor  # noqa: E402  (needs the sys.path line above)
 import brain  # noqa: E402  (imports monitor too)
+from weather import Weather  # noqa: E402
 
 SAMPLE_EVERY_S = 2
 # How many samples the CPU/RAM graph remembers (90 x 2s = 3 minutes).
@@ -51,6 +52,7 @@ class Stats:
 
     def __init__(self, voice=None):
         self.voice = voice
+        self.weather = Weather()
         self.ears = None  # set in main() once the ears are running
         self.latest = None
         self.history = deque(maxlen=HISTORY_LEN)
@@ -79,6 +81,7 @@ class Stats:
         m = dict(self.latest or {})
         m["voice"] = self.voice is not None
         m["speaking"] = self.voice.speaking if self.voice else None
+        m["weather"] = self.weather.get()
         m["ears"] = self.ears is not None
         m["awake"] = bool(self.ears and self.ears.awake)
         heard = self.ears.heard if self.ears else None
@@ -104,7 +107,7 @@ class Stats:
 
     def on_command(self, name):
         """Called by the ears when they recognize a command."""
-        line = brain.reply(name, self.latest)
+        line = brain.reply(name, self.latest, self.weather.get())
         if line:
             self.voice.say(line)
 
@@ -131,7 +134,7 @@ class Handler(SimpleHTTPRequestHandler):
             if not voice or not stats.latest:
                 self.send_json({"ok": False}, status=503)
                 return
-            voice.say(brain.status_report(stats.latest))
+            voice.say(brain.status_report(stats.latest, stats.weather.get()))
             self.send_json({"ok": True})
         else:
             self.send_error(404)

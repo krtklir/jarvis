@@ -127,6 +127,12 @@
   button.cmd:hover:not(:disabled) { background: rgba(62, 232, 255, 0.18); box-shadow: 0 0 14px var(--cyan-dim); }
   button.cmd:disabled { opacity: 0.35; cursor: default; }
 
+  /* --- weather --- */
+  .wx-now { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+  .wx-icon { font-size: 36px; width: 44px; text-align: center; filter: drop-shadow(0 0 6px var(--cyan-dim)); }
+  #wx-temp { font-size: 28px; color: var(--cyan); }
+  .wx-cond { color: var(--muted); letter-spacing: 0.15em; font-size: 13px; text-transform: uppercase; }
+
   .warn-c { color: var(--amber) !important; }
   .bad-c  { color: var(--red) !important; }
 
@@ -232,10 +238,19 @@
       <div class="legend"><span><i style="background:#3ee8ff"></i>CPU</span><span><i style="background:#ffb84d"></i>RAM</span></div>
     </div>
     <div class="panel">
-      <h2>THERMALS</h2>
-      <div class="row"><span>CPU PACKAGE</span><span id="temp">—</span></div>
-      <div class="bar"><div id="temp-bar" style="width:0"></div></div>
-      <div class="row"><span>WARN AT</span><span>75 °C</span></div>
+      <h2 id="wx-title">WEATHER</h2>
+      <div class="wx-now">
+        <div id="wx-icon" class="wx-icon">—</div>
+        <div>
+          <div id="wx-temp" class="orb glow">--°</div>
+          <div id="wx-cond" class="wx-cond">CONNECTING…</div>
+        </div>
+      </div>
+      <div class="row"><span>FEELS LIKE</span><span id="wx-feels">—</span></div>
+      <div class="row"><span>HUMIDITY · WIND</span><span id="wx-hw">—</span></div>
+      <div class="row"><span>TODAY</span><span id="wx-today">—</span></div>
+      <div class="row"><span>TOMORROW</span><span id="wx-tmrw">—</span></div>
+      <div class="row"><span>SUN</span><span id="wx-sun">—</span></div>
     </div>
   </section>
 
@@ -325,6 +340,32 @@ function drawGraph(history) {
   }
 }
 
+// --- weather ------------------------------------------------------------------
+// WMO weather code -> a symbol for the panel (same codes as weather.py).
+function wxIcon(code, isDay) {
+  if (code === 0) return isDay ? "☀" : "☾";
+  if (code <= 2) return isDay ? "🌤" : "☁";
+  if (code === 3) return "☁";
+  if (code <= 48) return "🌫";
+  if (code <= 67 || (code >= 80 && code <= 82)) return "🌧";
+  if (code <= 86) return "❄";
+  return "⛈";
+}
+
+function renderWeather(w) {
+  if (!w) return; // first fetch not done yet (or offline since startup)
+  $("wx-title").textContent = `WEATHER · ${w.place.toUpperCase()}${w.stale ? " · STALE" : ""}`;
+  $("wx-icon").textContent = wxIcon(w.code, w.is_day);
+  $("wx-temp").textContent = `${Math.round(w.temp)}°C`;
+  $("wx-cond").textContent = w.condition;
+  $("wx-feels").textContent = `${Math.round(w.feels_like)}°C`;
+  $("wx-hw").textContent = `${w.humidity}% · ${Math.round(w.wind_kmh)} KM/H`;
+  const day = d => `${Math.round(d.low)}° / ${Math.round(d.high)}°` + (d.rain_chance >= 20 ? ` · ☂ ${d.rain_chance}%` : "");
+  $("wx-today").textContent = day(w.today);
+  $("wx-tmrw").textContent = day(w.tomorrow);
+  $("wx-sun").textContent = `↑ ${w.sunrise}  ↓ ${w.sunset}`;
+}
+
 // --- render -------------------------------------------------------------------
 function render(m) {
   if (m.cpu_percent === undefined) return; // server's first sample isn't ready yet
@@ -380,9 +421,7 @@ function render(m) {
   $("net-tx").textContent = fmtRate(m.net_tx_kbps);
   $("ifaces").textContent = Object.keys(m.net_interfaces).join(", ") || "NONE";
 
-  $("temp").textContent = m.temp_c == null ? "N/A" : `${m.temp_c.toFixed(1)} °C`;
-  $("temp").className = tempLvl ? `${tempLvl}-c` : "";
-  $("temp-bar").style.width = `${Math.min(100, m.temp_c ?? 0)}%`;
+  renderWeather(m.weather);
 
   drawGraph(m.history);
 
